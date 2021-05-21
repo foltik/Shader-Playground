@@ -4,7 +4,7 @@ A shader editor inspired by ShaderToy featuring live reloading and automatic GUI
 
 Try the demo with `cargo run demo.glsl`.
 
-![image](https://user-images.githubusercontent.com/5026551/118906287-0edcd900-b90d-11eb-91a9-356b6f17b94a.png)
+![image](https://user-images.githubusercontent.com/5026551/119198566-102b1480-ba79-11eb-9518-692a75b2563f.png)
 
 ## Details
 
