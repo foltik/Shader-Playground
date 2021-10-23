@@ -1,6 +1,9 @@
 use std::{
+    array::IntoIter,
     borrow::Cow,
+    collections::HashMap,
     fs,
+    iter::FromIterator,
     path::Path,
     sync::{
         mpsc::{Receiver, Sender},
@@ -82,8 +85,37 @@ fn compile(
     let reflect_mod = spirv_reflect::create_shader_module(spirv.as_binary_u8())
         .expect("Failed to reflect shader module!");
 
+    // use naga::{front::glsl, back::spv, valid};
+    // let naga_mod = match glsl::parse_str(
+    //     &content,
+    //     &glsl::Options {
+    //         entry_points: naga::FastHashMap::from_iter(IntoIter::new([(
+    //             "main".to_string(),
+    //             naga::ShaderStage::Fragment,
+    //         )])),
+    //         defines: naga::FastHashMap::from_iter(IntoIter::new([])),
+    //     },
+    // ) {
+    //     Ok(m) => m,
+    //     Err(e) => panic!("{:#?}", e),
+    // };
+
+    // let analysis = valid::Validator::new(
+    //     valid::ValidationFlags::empty(),
+    //     valid::Capabilities::all(),
+    // )
+    // .validate(&naga_mod)
+    // .unwrap();
+
+    // let spirv = spv::write_vec(&naga_mod, &analysis, &spv::Options {
+    //     lang_version: (1, 0),
+    //     flags: spv::WriterFlags::empty(),
+    //     capabilities: None,
+    // }).unwrap();
+
     let wgpu_mod = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
         label: None,
+        // source: wgpu::ShaderSource::SpirV(Cow::Borrowed(&spirv)),
         source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv.as_binary())),
         flags: wgpu::ShaderFlags::empty(),
     });

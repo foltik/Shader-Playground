@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-wgpu = "0.8"
+wgpu = "0.9"
 winit = "0.24"
 imgui = "0.7"
-imgui-wgpu = "0.15"
+imgui-wgpu = "0.16"
 imgui-winit-support = "0.7"
+# naga = { git = "https://github.com/gfx-rs/naga.git", branch = "master", features = ["glsl-in", "wgsl-in", "spv-in", "spv-out"] }
+naga = { path = "../naga", features = ["glsl-in", "wgsl-in", "spv-in", "spv-out"] }
 
 shaderc = "0.7"
 spirv-reflect = "0.2"
@@ -17,4 +19,4 @@ notify = "4"
 pollster = "0.2.4"
 
 log = "0.4"
-env_logger = "0.8"
+env_logger = "0.9"
