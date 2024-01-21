@@ -90,13 +90,13 @@ impl Program {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: size as u64,
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
 
             let group = uniform_groups
                 .entry(binding.set)
-                .or_insert_with(HashMap::new);
+                .or_default();
 
             // Add the uniform to the bind group
             group.insert(
@@ -116,10 +116,10 @@ impl Program {
                 let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: None,
                     entries: &uniforms
-                        .iter()
-                        .map(|(j, _)| wgpu::BindGroupLayoutEntry {
+                        .keys()
+                        .map(|j| wgpu::BindGroupLayoutEntry {
                             binding: *j,
-                            visibility: wgpu::ShaderStage::FRAGMENT,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
                             ty: wgpu::BindingType::Buffer {
                                 ty: wgpu::BufferBindingType::Uniform,
                                 min_binding_size: None,
@@ -158,11 +158,11 @@ impl Program {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &uniform_groups
-                .iter()
-                .map(|(_, g)| &g.bind_group_layout)
+                .values()
+                .map(|g| &g.bind_group_layout)
                 .collect::<Vec<_>>(),
             push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStage::all(),
+                stages: wgpu::ShaderStages::all(),
                 range: 0..Constants::SIZE,
             }],
         });
@@ -170,7 +170,7 @@ impl Program {
             label: None,
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &vertex,
+                module: vertex,
                 entry_point: "main",
                 buffers: &[],
             },
@@ -178,17 +178,18 @@ impl Program {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 ..Default::default()
             },
-            fragment: Some(wgpu::FragmentState {
-                module: &fragment,
-                entry_point: "main",
-                targets: &[crate::render::FORMAT.into()],
-            }),
             depth_stencil: None,
             multisample: wgpu::MultisampleState {
                 count: 1,
                 mask: !0,
                 alpha_to_coverage_enabled: false,
             },
+            fragment: Some(wgpu::FragmentState {
+                module: &fragment,
+                entry_point: "main",
+                targets: &[Some(crate::render::FORMAT.into())],
+            }),
+            multiview: None,
         });
 
         Ok(Self {

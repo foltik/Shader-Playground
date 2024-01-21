@@ -1,4 +1,3 @@
-use imgui::im_str;
 use std::{
     sync::{mpsc::Receiver, Arc, Mutex},
     time::Instant,
@@ -28,7 +27,6 @@ pub struct Renderer {
 
     size: PhysicalSize<u32>,
     surface: wgpu::Surface,
-    swap_chain: wgpu::SwapChain,
 
     start: Instant,
     mouse_click: [f32; 2],
@@ -46,10 +44,14 @@ impl Renderer {
         rx: Receiver<Program>,
     ) -> Self {
         // Create the wgpu instance and request an adapter and device
-        let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             compatible_surface: None,
+            force_fallback_adapter: false,
         }))
         .expect("Failed to create graphics adapter!");
         let (device, queue) = pollster::block_on(adapter.request_device(
@@ -69,8 +71,8 @@ impl Renderer {
         // Set up the winit window and swapchain
         let window = winit::window::Window::new(event_loop).unwrap();
         let size = window.inner_size();
-        let surface = unsafe { instance.create_surface(&window) };
-        let swap_chain = Self::create_swap_chain(&device, &surface, size);
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        Self::resize_surface(&device, &surface, size);
 
         // Spawn a thread to listen for and replace the shader program with newly compiled ones
         let program: Arc<Mutex<Option<Program>>> = Arc::new(Mutex::new(None));
@@ -112,7 +114,7 @@ impl Renderer {
             }]);
         let imgui_renderer = imgui_wgpu::Renderer::new(
             &mut imgui,
-            &*device,
+            &device,
             &queue,
             imgui_wgpu::RendererConfig {
                 texture_format: FORMAT,
@@ -130,7 +132,6 @@ impl Renderer {
 
             size,
             surface,
-            swap_chain,
 
             start: Instant::now(),
             mouse_click: [size.width as f32 / 2.0, size.height as f32 / 2.0],
@@ -158,10 +159,10 @@ impl Renderer {
 
     pub fn render(&mut self) {
         let frame = self
-            .swap_chain
-            .get_current_frame()
-            .expect("Failed to acquire next swap chain image!")
-            .output;
+            .surface
+            .get_current_texture()
+            .expect("Failed to acquire next swap chain image!");
+        let view = frame.texture.create_view(&Default::default());
 
         let mut encoder = self
             .device
@@ -169,10 +170,13 @@ impl Renderer {
                 label: Some("main"),
             });
 
-        self.render_program(&self.queue, &frame.view, &mut encoder);
-        self.render_gui(&frame.view, &mut encoder);
+        self.render_program(&self.queue, &view, &mut encoder);
+        self.render_gui(&view, &mut encoder);
 
         self.queue.submit(Some(encoder.finish()));
+        frame.present();
+
+        self.window.request_redraw();
     }
 
     fn render_program(
@@ -200,14 +204,14 @@ impl Renderer {
 
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: None,
             });
             pass.set_pipeline(&program.pipeline);
@@ -219,7 +223,7 @@ impl Renderer {
 
             // Copy the push constants
             pass.set_push_constants(
-                wgpu::ShaderStage::all(),
+                wgpu::ShaderStages::all(),
                 0,
                 &[
                     // Time
@@ -252,25 +256,25 @@ impl Renderer {
 
         {
             // Display program constants.
-            // Make copies since we can't borrow &self in the closure since the 
+            // Make copies since we can't borrow &self in the closure since the
             // function already mutably borrows &mut self.
             let secs = self.start.elapsed().as_secs_f32();
             let size = self.size;
             let mpos = Self::transform(self.size, ui.io().mouse_pos);
             let mclick = Self::transform(self.size, self.mouse_click);
-            imgui::Window::new(im_str!("Stats"))
+            ui.window("Stats")
                 .position([50.0, 50.0], imgui::Condition::FirstUseEver)
                 .size([200.0, 0.0], imgui::Condition::Always)
-                .build(&ui, || {
-                    ui.text(im_str!("Time: {:.2}s", secs));
-                    ui.text(im_str!("FPS: {:.2}", ui.io().framerate));
-                    ui.text(im_str!("Resolution: {}x{}", size.width, size.height));
-                    ui.text(im_str!(
+                .build(|| {
+                    ui.text(format!("Time: {:.2}s", secs));
+                    ui.text(format!("FPS: {:.2}", ui.io().framerate));
+                    ui.text(format!("Resolution: {}x{}", size.width, size.height));
+                    ui.text(format!(
                         "Aspect Ratio: {:.2}",
                         size.width as f32 / size.height as f32
                     ));
-                    ui.text(im_str!("Mouse Position: ({:+.03},{:+.03})", mpos[0], mpos[1]));
-                    ui.text(im_str!(
+                    ui.text(format!("Mouse Position: ({:+.03},{:+.03})", mpos[0], mpos[1]));
+                    ui.text(format!(
                         "Click Position: ({:+.03},{:+.03})",
                         mclick[0],
                         mclick[1]
@@ -284,21 +288,21 @@ impl Renderer {
                     .values_mut()
                     .flat_map(|g| g.uniforms.iter_mut());
                 for (i, (_, uniform)) in uniforms.enumerate() {
-                    imgui::Window::new(&im_str!("Uniform: {}", &uniform.name))
+                    ui.window(format!("Uniform: {}", &uniform.name))
                         .position(
                             [50.0 + ((i + 1) as f32 * 225.0), 50.0],
                             imgui::Condition::FirstUseEver,
                         )
                         .size([200.0, 0.0], imgui::Condition::Always)
-                        .build(&ui, || {
+                        .build(|| {
                             let n = uniform.vars.len();
                             for (j, (name, var)) in uniform.vars.iter_mut().enumerate() {
                                 match var {
-                                    Variable::Int(i) => gui::input_int(&ui, name, i),
-                                    Variable::Float(f) => gui::input_float(&ui, name, f),
-                                    Variable::Vec2(v) => gui::input_vec2(&ui, name, v),
-                                    Variable::Vec3(v) => gui::input_vec3(&ui, name, v),
-                                    Variable::Vec4(v) => gui::input_vec4(&ui, name, v),
+                                    Variable::Int(i) => gui::input_int(ui, name, i),
+                                    Variable::Float(f) => gui::input_float(ui, name, f),
+                                    Variable::Vec2(v) => gui::input_vec2(ui, name, v),
+                                    Variable::Vec3(v) => gui::input_vec3(ui, name, v),
+                                    Variable::Vec4(v) => gui::input_vec4(ui, name, v),
                                 }
 
                                 if j != n - 1 {
@@ -311,44 +315,43 @@ impl Renderer {
         }
 
         // Encode the GUI draw calls
-        self.imgui_plaf.prepare_render(&ui, &self.window);
+        self.imgui_plaf.prepare_render(ui, &self.window);
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("gui"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: true,
                 },
-            }],
+            })],
             depth_stencil_attachment: None,
         });
         self.imgui_renderer
-            .render(ui.render(), &self.queue, &*self.device, &mut pass)
+            .render(self.imgui.render(), &self.queue, &self.device, &mut pass)
             .unwrap();
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         self.size = size;
-        self.swap_chain = Self::create_swap_chain(&*self.device, &self.surface, size);
+        Self::resize_surface(&self.device, &self.surface, size);
     }
 
-    fn create_swap_chain(
+    fn resize_surface(
         device: &wgpu::Device,
         surface: &wgpu::Surface,
         size: PhysicalSize<u32>,
-    ) -> wgpu::SwapChain {
-        device.create_swap_chain(
-            surface,
-            &wgpu::SwapChainDescriptor {
-                usage: wgpu::TextureUsage::RENDER_ATTACHMENT,
-                format: FORMAT,
-                width: size.width,
-                height: size.height,
-                present_mode: wgpu::PresentMode::Mailbox,
-            },
-        )
+    ) {
+        surface.configure(device, &wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: FORMAT,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Immediate,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+        });
     }
 
     // Transform a screen coodinate to a shader UV coordinate

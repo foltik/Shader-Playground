@@ -1,9 +1,5 @@
 use std::{
-    array::IntoIter,
-    borrow::Cow,
-    collections::HashMap,
     fs,
-    iter::FromIterator,
     path::Path,
     sync::{
         mpsc::{Receiver, Sender},
@@ -50,7 +46,7 @@ pub fn spawn(
 
             // Wait for a message from the watcher indicating that
             // the file has changed and we should compile it again.
-            let _ = watch_rx.recv().unwrap();
+            watch_rx.recv().unwrap();
         }
     });
 }
@@ -63,6 +59,7 @@ fn compile(
     file: &Path,
 ) -> Result<(wgpu::ShaderModule, spirv_reflect::ShaderModule), shaderc::Error> {
     let dir = file.parent().unwrap();
+    let filename = file.file_name().unwrap().to_string_lossy();
 
     // Configure the compiler to try to resolve includes in the same folder
     // as the file being compiled
@@ -81,6 +78,7 @@ fn compile(
 
     let content = std::fs::read_to_string(file).expect("Failed to read shader file!");
     let spirv = compiler.compile_into_spirv(&content, kind, "", "main", Some(&options))?;
+    let source = wgpu::util::make_spirv(spirv.as_binary_u8());
 
     let reflect_mod = spirv_reflect::create_shader_module(spirv.as_binary_u8())
         .expect("Failed to reflect shader module!");
@@ -113,11 +111,9 @@ fn compile(
     //     capabilities: None,
     // }).unwrap();
 
-    let wgpu_mod = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: None,
-        // source: wgpu::ShaderSource::SpirV(Cow::Borrowed(&spirv)),
-        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv.as_binary())),
-        flags: wgpu::ShaderFlags::empty(),
+    let wgpu_mod = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(filename.as_ref()),
+        source,
     });
 
     Ok((wgpu_mod, reflect_mod))
@@ -131,11 +127,11 @@ fn compile_literal(
     name: &str,
     content: &str,
 ) -> Result<wgpu::ShaderModule, shaderc::Error> {
-    let spirv = compiler.compile_into_spirv(&content, kind, name, "main", None)?;
+    let spirv = compiler.compile_into_spirv(content, kind, name, "main", None)?;
+    let source = wgpu::util::make_spirv(spirv.as_binary_u8());
 
-    Ok(device.create_shader_module(&wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::SpirV(Cow::Borrowed(spirv.as_binary())),
-        flags: wgpu::ShaderFlags::empty(),
+    Ok(device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(name),
+        source,
     }))
 }

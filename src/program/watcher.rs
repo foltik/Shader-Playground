@@ -10,7 +10,7 @@ pub fn spawn(file: &Path, tx: Sender<()>) {
 
         use notify::Watcher;
         watcher
-            .watch(&file.parent().unwrap(), notify::RecursiveMode::Recursive)
+            .watch(file.parent().unwrap(), notify::RecursiveMode::Recursive)
             .unwrap();
 
         loop {
